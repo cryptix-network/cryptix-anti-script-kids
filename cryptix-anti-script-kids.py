@@ -4,8 +4,8 @@ import time
 import curses
 from collections import Counter, defaultdict
 
-MAX_CONNECTIONS = 75
-MAX_CONNECTIONS_PER_SECOND = 25 
+MAX_CONNECTIONS = 100
+MAX_CONNECTIONS_PER_SECOND = 30 
 TIME_LIMIT = 3  
 TIME_WINDOW = 1  
 SYN_THRESHOLD = 20
@@ -21,6 +21,7 @@ syn_counter = defaultdict(int)
 udp_counter = defaultdict(int)
 zero_byte_counter = defaultdict(int)
 ip_request_time = defaultdict(list) 
+ip_request_time_2min = defaultdict(list)  
 
 blocked_ips = {}
 
@@ -71,10 +72,10 @@ def track_connections_per_second(ip):
     current_time = time.time()
 
     ip_request_time[ip] = [timestamp for timestamp in ip_request_time[ip] if current_time - timestamp <= TIME_WINDOW]
-    
+    ip_request_time_2min[ip] = [timestamp for timestamp in ip_request_time_2min[ip] if current_time - timestamp <= 120]  
 
     ip_request_time[ip].append(current_time)
-
+    ip_request_time_2min[ip].append(current_time)
 
     if len(ip_request_time[ip]) > MAX_CONNECTIONS_PER_SECOND:
         block_ip(ip)
@@ -233,10 +234,10 @@ def monitor_connections(stdscr):
                 break
 
         if row < max_height:
-            stdscr.addstr(row, 0, "Top 10 Dangerous IPs (Most Connections in the Last 30 Seconds):")
+            stdscr.addstr(row, 0, "Top 5 Dangerous IPs (Most Connections in the Last 30 Seconds):")
             row += 1
-        top_10_ips = sorted(ip_connections_last_30s.items(), key=lambda item: item[1], reverse=True)[:10]
-        for ip, count in top_10_ips:
+        top_5_ips = sorted(ip_connections_last_30s.items(), key=lambda item: item[1], reverse=True)[:5]
+        for ip, count in top_5_ips:
             if row < max_height:
                 text = f"IP: {ip}, Connections: {count}"
                 stdscr.addstr(row, 0, text[:max_width])
@@ -244,9 +245,48 @@ def monitor_connections(stdscr):
             else:
                 break
 
+        
+        
+        if row < max_height:
+            stdscr.addstr(row, 0, "Top 5 IPs with Most Requests per Second (Last 30 seconds):")
+            row += 1
+
+     
+        ip_requests_per_second = {ip: len(requests) / TIME_WINDOW for ip, requests in ip_request_time.items()}
+        top_5_requests_ips = sorted(ip_requests_per_second.items(), key=lambda item: item[1], reverse=True)[:5]
+        for ip, rps in top_5_requests_ips:
+            if row < max_height:
+                text = f"IP: {ip}, Requests per second: {rps:.2f}"
+                stdscr.addstr(row, 0, text[:max_width])
+                row += 1
+            else:
+                break
+
+    
+        
+        if row < max_height:
+            stdscr.addstr(row, 0, "Top 5 IPs with Most Requests in the Last 2 Minutes:")
+            row += 1
+
+     
+        ip_requests_last_2min = {ip: len(requests) for ip, requests in ip_request_time_2min.items()}
+        top_5_requests_2min_ips = sorted(ip_requests_last_2min.items(), key=lambda item: item[1], reverse=True)[:5]
+        if len(top_5_requests_2min_ips) > 0:
+            for ip, count in top_5_requests_2min_ips:
+                if row < max_height:
+                    text = f"IP: {ip}, Requests: {count}"
+                    stdscr.addstr(row, 0, text[:max_width])
+                    row += 1
+                else:
+                    break
+        else:
+            stdscr.addstr(row, 0, "No requests in the last 2 minutes.")
+            row += 1
+
         ip_connections_last_30s.clear()
 
         stdscr.refresh()
+
 
 if __name__ == "__main__":
     curses.wrapper(monitor_connections)
