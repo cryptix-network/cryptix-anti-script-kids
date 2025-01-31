@@ -3,3 +3,4 @@ A simple Python script that detects DDoS, 0 Byte, SYN, UDP, and other attacks, a
 This script is primarily designed to protect RPC / REST / Socket interfaces, but it also protects HTTP/S traffic.
 
 A good, simple script against script kiddies
+![cryptix-anti](https://github.com/user-attachments/assets/b702829b-d95e-4532-8e1c-9a8000b1bf8c)
