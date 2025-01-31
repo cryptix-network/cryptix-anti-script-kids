@@ -11,6 +11,8 @@ TIME_WINDOW = 1
 SYN_THRESHOLD = 20
 UDP_THRESHOLD = 50
 ZERO_BYTE_THRESHOLD = 10
+MIN2_REQUEST = 500
+BLOCK_COOLDOWN = 60 
 
 LOG_FILE = "ddos_block_log.txt"
 
@@ -25,7 +27,7 @@ ip_request_time_2min = defaultdict(list)
 
 blocked_ips = {}
 
-BLOCK_COOLDOWN = 60 
+
 
 def log_blocked_ip(ip):
     with open(LOG_FILE, "a") as log_file:
@@ -43,11 +45,23 @@ def block_ip(ip):
             return
 
     try:
+       
         command = f'netsh advfirewall firewall add rule name="Block DDoS IP {ip}" dir=in action=block remoteip={ip}'
         subprocess.run(command, shell=True, check=True)
         print(f"Blocked IP: {ip}")
         log_blocked_ip(ip)
         blocked_ips[ip] = current_time
+        
+     
+        if ip in ip_request_time:
+            del ip_request_time[ip]
+        if ip in ip_request_time_2min:
+            del ip_request_time_2min[ip]
+        if ip in ip_connections_last_30s:
+            del ip_connections_last_30s[ip]
+        
+        print(f"IP {ip} has been removed from tracking lists.")
+
     except Exception as e:
         print(f"Error blocking IP {ip}: {e}")
 
@@ -262,26 +276,33 @@ def monitor_connections(stdscr):
             else:
                 break
 
-    
-        
+     
         if row < max_height:
             stdscr.addstr(row, 0, "Top 5 IPs with Most Requests in the Last 2 Minutes:")
             row += 1
 
-     
         ip_requests_last_2min = {ip: len(requests) for ip, requests in ip_request_time_2min.items()}
         top_5_requests_2min_ips = sorted(ip_requests_last_2min.items(), key=lambda item: item[1], reverse=True)[:5]
-        if len(top_5_requests_2min_ips) > 0:
-            for ip, count in top_5_requests_2min_ips:
+        
+       
+        for ip, count in top_5_requests_2min_ips:
+            if count > MIN2_REQUEST:
+                text = f"Blocking IP {ip} for {count} requests in the last 2 minutes."
+                stdscr.addstr(row, 0, text[:max_width])
+                block_ip(ip) 
+                row += 1
+            else:
                 if row < max_height:
                     text = f"IP: {ip}, Requests: {count}"
                     stdscr.addstr(row, 0, text[:max_width])
                     row += 1
                 else:
                     break
-        else:
+
+        if len(top_5_requests_2min_ips) == 0:
             stdscr.addstr(row, 0, "No requests in the last 2 minutes.")
             row += 1
+
 
         ip_connections_last_30s.clear()
 
