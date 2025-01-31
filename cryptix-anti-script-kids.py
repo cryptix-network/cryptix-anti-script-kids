@@ -4,15 +4,17 @@ import time
 import curses
 from collections import Counter, defaultdict
 
-MAX_CONNECTIONS = 100
-MAX_CONNECTIONS_PER_SECOND = 30 
+MAX_CONNECTIONS = 20
+MAX_CONNECTIONS_PER_SECOND = 10 
 TIME_LIMIT = 3  
-TIME_WINDOW = 1  
-SYN_THRESHOLD = 20
-UDP_THRESHOLD = 50
+TIME_WINDOW = 0.5  
+SYN_THRESHOLD = 5
+UDP_THRESHOLD = 25
 ZERO_BYTE_THRESHOLD = 10
-MIN2_REQUEST = 500
+MIN2_REQUEST = 5000
 BLOCK_COOLDOWN = 60 
+TIME_WINDOW_LONG = 10  
+REQUESTS_THRESHOLD = 5
 
 LOG_FILE = "ddos_block_log.txt"
 
@@ -82,16 +84,22 @@ def group_ips_by_similarity(connections):
     return grouped_ips
 
 def track_connections_per_second(ip):
-    """Short Time Connections"""
+    """Ban to much requests per second"""
     current_time = time.time()
 
+
     ip_request_time[ip] = [timestamp for timestamp in ip_request_time[ip] if current_time - timestamp <= TIME_WINDOW]
-    ip_request_time_2min[ip] = [timestamp for timestamp in ip_request_time_2min[ip] if current_time - timestamp <= 120]  
+    ip_request_time_2min[ip] = [timestamp for timestamp in ip_request_time_2min[ip] if current_time - timestamp <= 120]
+
 
     ip_request_time[ip].append(current_time)
     ip_request_time_2min[ip].append(current_time)
 
-    if len(ip_request_time[ip]) > MAX_CONNECTIONS_PER_SECOND:
+
+    requests_in_last_10_sec = len([timestamp for timestamp in ip_request_time[ip] if current_time - timestamp <= TIME_WINDOW_LONG])
+
+    if requests_in_last_10_sec > REQUESTS_THRESHOLD:
+        print(f"IP {ip} exceeded {REQUESTS_THRESHOLD} requests per second for more than {TIME_WINDOW_LONG} seconds, blocking.")
         block_ip(ip)
 
 def monitor_synthetic_traffic(ip, syn_count, udp_count):
