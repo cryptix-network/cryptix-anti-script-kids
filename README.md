@@ -4,5 +4,4 @@ This script is primarily designed to protect RPC / REST / Socket interfaces, but
 
 A good, simple script against script kiddies'
 
-
-![cryptix-anti](https://github.com/user-attachments/assets/b702829b-d95e-4532-8e1c-9a8000b1bf8c)
+![321213231321](https://github.com/user-attachments/assets/b516ab71-70ec-40d8-9a9a-24e0a2af9271)
