@@ -4,40 +4,57 @@ import time
 import curses
 from collections import Counter, defaultdict
 
-MAX_CONNECTIONS = 20
-MAX_CONNECTIONS_PER_SECOND = 10 
+MAX_CONNECTIONS = 100
+MAX_CONNECTIONS_PER_SECOND = 30 
 TIME_LIMIT = 3  
 TIME_WINDOW = 0.5  
-SYN_THRESHOLD = 5
-UDP_THRESHOLD = 25
+SYN_THRESHOLD = 20
+UDP_THRESHOLD = 50
 ZERO_BYTE_THRESHOLD = 10
-MIN2_REQUEST = 5000
-BLOCK_COOLDOWN = 60 
-TIME_WINDOW_LONG = 10  
-REQUESTS_THRESHOLD = 5
+MIN2_REQUEST = 2000
+BLOCK_COOLDOWN = 30 
+TIME_WINDOW_LONG = 25 
+REQUESTS_THRESHOLD = 50
+
+SUSTAINED_CONNECTION_LIMIT = 50  
+SUSTAINED_CONNECTION_DURATION = 60  
 
 LOG_FILE = "ddos_block_log.txt"
 
 ip_block_counter = {}
+ip_sustained_connections = defaultdict(float)
 port_counter = {80: 0, 443: 0, 8000: 0, 8001: 0, 8080: 0, 8443: 0}
 ip_connections_last_30s = defaultdict(int)
 syn_counter = defaultdict(int)
 udp_counter = defaultdict(int)
 zero_byte_counter = defaultdict(int)
-ip_request_time = defaultdict(list) 
+ip_request_time = defaultdict(list)  
 ip_request_time_2min = defaultdict(list)  
 
 blocked_ips = {}
 
-
-
 def log_blocked_ip(ip):
+    """Log the blocked IP to a file."""
     with open(LOG_FILE, "a") as log_file:
         log_file.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - Blocked IP: {ip}\n")
     print(f"Blocked IP: {ip}")
 
+def track_sustained_connections(ip, connection_count):
+    """Track connections over time to detect long-running DDoS attacks."""
+    current_time = time.time()
+    if connection_count > SUSTAINED_CONNECTION_LIMIT:
+        if ip not in ip_sustained_connections:
+            ip_sustained_connections[ip] = current_time  
+        elif current_time - ip_sustained_connections[ip] > SUSTAINED_CONNECTION_DURATION:
+            print(f"IP {ip} got more {SUSTAINED_CONNECTION_LIMIT} Connections for {SUSTAINED_CONNECTION_DURATION} Seconds, block this bit... :D")
+            block_ip(ip)
+            del ip_sustained_connections[ip]
+    else:
+        if ip in ip_sustained_connections:
+            del ip_sustained_connections[ip]  
+
 def block_ip(ip):
-    """Block IP"""
+    """Block IP if it exceeds any threshold."""
     current_time = time.time()
 
     if ip in blocked_ips:
@@ -47,14 +64,12 @@ def block_ip(ip):
             return
 
     try:
-       
         command = f'netsh advfirewall firewall add rule name="Block DDoS IP {ip}" dir=in action=block remoteip={ip}'
         subprocess.run(command, shell=True, check=True)
         print(f"Blocked IP: {ip}")
         log_blocked_ip(ip)
         blocked_ips[ip] = current_time
         
-     
         if ip in ip_request_time:
             del ip_request_time[ip]
         if ip in ip_request_time_2min:
@@ -68,6 +83,7 @@ def block_ip(ip):
         print(f"Error blocking IP {ip}: {e}")
 
 def get_active_connections():
+    """Retrieve active network connections."""
     connections = []
     for conn in psutil.net_connections(kind='inet'):
         if conn.status == 'ESTABLISHED' and (conn.laddr.port in port_counter.keys()):
@@ -77,6 +93,7 @@ def get_active_connections():
     return connections
 
 def group_ips_by_similarity(connections):
+    """Group IPs by the first 3 octets."""
     grouped_ips = defaultdict(int)
     for ip, port in connections:
         ip_prefix = '.'.join(ip.split('.')[:3])
@@ -84,14 +101,14 @@ def group_ips_by_similarity(connections):
     return grouped_ips
 
 def track_connections_per_second(ip):
-    """Ban to much requests per second"""
+    """Track requests per second for each IP."""
     current_time = time.time()
 
 
     ip_request_time[ip] = [timestamp for timestamp in ip_request_time[ip] if current_time - timestamp <= TIME_WINDOW]
-    ip_request_time_2min[ip] = [timestamp for timestamp in ip_request_time_2min[ip] if current_time - timestamp <= 120]
+    ip_request_time_2min[ip] = [timestamp for timestamp in ip_request_time_2min[ip] if current_time - timestamp <= 120] 
 
-
+ 
     ip_request_time[ip].append(current_time)
     ip_request_time_2min[ip].append(current_time)
 
@@ -99,11 +116,11 @@ def track_connections_per_second(ip):
     requests_in_last_10_sec = len([timestamp for timestamp in ip_request_time[ip] if current_time - timestamp <= TIME_WINDOW_LONG])
 
     if requests_in_last_10_sec > REQUESTS_THRESHOLD:
-        print(f"IP {ip} exceeded {REQUESTS_THRESHOLD} requests per second for more than {TIME_WINDOW_LONG} seconds, blocking.")
+        print(f"IP {ip} überschritt {REQUESTS_THRESHOLD} Anfragen pro Sekunde für mehr als {TIME_WINDOW_LONG} Sekunden, blockiere.")
         block_ip(ip)
 
 def monitor_synthetic_traffic(ip, syn_count, udp_count):
-    """Spy SYN- und UDP-Attacks"""
+    """Monitor SYN and UDP flood attacks."""
     if syn_count > SYN_THRESHOLD:
         print(f"SYN Flood Detected from IP {ip}, blocking.")
         block_ip(ip)
@@ -112,7 +129,7 @@ def monitor_synthetic_traffic(ip, syn_count, udp_count):
         block_ip(ip)
 
 def monitor_zero_byte(ip, byte_count):
-    """Spy 0-Byte-Attacks"""
+    """Monitor Zero Byte Attacks."""
     if byte_count == 0:
         print(f"Zero Byte Attack Detected from IP {ip}, blocking.")
         block_ip(ip)
@@ -151,7 +168,8 @@ def monitor_connections(stdscr):
 
         for ip, count in ip_counts.items():
             ip_connections_last_30s[ip] += count
-            track_connections_per_second(ip)  
+            track_connections_per_second(ip) 
+            track_sustained_connections(ip, count) 
 
         grouped_ips = group_ips_by_similarity(connections)
 
@@ -240,22 +258,6 @@ def monitor_connections(stdscr):
                     break
 
         if row < max_height:
-            stdscr.addstr(row, 0, "Current Block Counters:")
-            row += 1
-        for ip, count in ip_block_counter.items():
-            if row < max_height:
-                text = f"IP {ip} was blocked {count} times."
-                stdscr.addstr(row, 0, text[:max_width])
-                row += 1
-            else:
-                row = 0
-                stdscr.clear()
-                stdscr.addstr(row, 0, "Current Block Counters:")
-                row += 1
-                stdscr.refresh()
-                break
-
-        if row < max_height:
             stdscr.addstr(row, 0, "Top 5 Dangerous IPs (Most Connections in the Last 30 Seconds):")
             row += 1
         top_5_ips = sorted(ip_connections_last_30s.items(), key=lambda item: item[1], reverse=True)[:5]
@@ -267,12 +269,9 @@ def monitor_connections(stdscr):
             else:
                 break
 
-        
-        
         if row < max_height:
             stdscr.addstr(row, 0, "Top 5 IPs with Most Requests per Second (Last 30 seconds):")
             row += 1
-
      
         ip_requests_per_second = {ip: len(requests) / TIME_WINDOW for ip, requests in ip_request_time.items()}
         top_5_requests_ips = sorted(ip_requests_per_second.items(), key=lambda item: item[1], reverse=True)[:5]
@@ -284,38 +283,33 @@ def monitor_connections(stdscr):
             else:
                 break
 
-     
         if row < max_height:
             stdscr.addstr(row, 0, "Top 5 IPs with Most Requests in the Last 2 Minutes:")
             row += 1
-
+     
         ip_requests_last_2min = {ip: len(requests) for ip, requests in ip_request_time_2min.items()}
         top_5_requests_2min_ips = sorted(ip_requests_last_2min.items(), key=lambda item: item[1], reverse=True)[:5]
-        
-       
+
         for ip, count in top_5_requests_2min_ips:
-            if count > MIN2_REQUEST:
-                text = f"Blocking IP {ip} for {count} requests in the last 2 minutes."
-                stdscr.addstr(row, 0, text[:max_width])
-                block_ip(ip) 
-                row += 1
-            else:
-                if row < max_height:
-                    text = f"IP: {ip}, Requests: {count}"
+            if ip not in blocked_ips: 
+                if count > MIN2_REQUEST:
+                    text = f"Blocking IP {ip} for {count} requests in the last 2 minutes."
                     stdscr.addstr(row, 0, text[:max_width])
+                    block_ip(ip)
                     row += 1
                 else:
-                    break
+                    if row < max_height:
+                        text = f"IP: {ip}, Requests: {count}"
+                        stdscr.addstr(row, 0, text[:max_width])
+                        row += 1
 
         if len(top_5_requests_2min_ips) == 0:
             stdscr.addstr(row, 0, "No requests in the last 2 minutes.")
             row += 1
 
-
         ip_connections_last_30s.clear()
 
         stdscr.refresh()
-
 
 if __name__ == "__main__":
     curses.wrapper(monitor_connections)
