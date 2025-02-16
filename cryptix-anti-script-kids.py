@@ -4,20 +4,20 @@ import time
 import curses
 from collections import Counter, defaultdict
 
-MAX_CONNECTIONS = 100
-MAX_CONNECTIONS_PER_SECOND = 30 
+MAX_CONNECTIONS = 20
+MAX_CONNECTIONS_PER_SECOND = 20 
 TIME_LIMIT = 3  
 TIME_WINDOW = 0.5  
 SYN_THRESHOLD = 20
 UDP_THRESHOLD = 50
 ZERO_BYTE_THRESHOLD = 10
-MIN2_REQUEST = 2000
+MIN2_REQUEST = 1000
 BLOCK_COOLDOWN = 30 
-TIME_WINDOW_LONG = 25 
+TIME_WINDOW_LONG = 10  
 REQUESTS_THRESHOLD = 50
 
-SUSTAINED_CONNECTION_LIMIT = 50  
-SUSTAINED_CONNECTION_DURATION = 60  
+SUSTAINED_CONNECTION_LIMIT = 40  
+SUSTAINED_CONNECTION_DURATION = 30 
 
 LOG_FILE = "ddos_block_log.txt"
 
@@ -46,7 +46,7 @@ def track_sustained_connections(ip, connection_count):
         if ip not in ip_sustained_connections:
             ip_sustained_connections[ip] = current_time  
         elif current_time - ip_sustained_connections[ip] > SUSTAINED_CONNECTION_DURATION:
-            print(f"IP {ip} got more {SUSTAINED_CONNECTION_LIMIT} Connections for {SUSTAINED_CONNECTION_DURATION} Seconds, block this bit... :D")
+            print(f"IP {ip} has more than {SUSTAINED_CONNECTION_LIMIT} connections for more than {SUSTAINED_CONNECTION_DURATION} seconds. Blocking it.")
             block_ip(ip)
             del ip_sustained_connections[ip]
     else:
@@ -60,7 +60,7 @@ def block_ip(ip):
     if ip in blocked_ips:
         last_blocked = blocked_ips[ip]
         if current_time - last_blocked < BLOCK_COOLDOWN:
-            print(f"IP {ip} ist on Cooldown")
+            print(f"IP {ip} is on Cooldown")
             return
 
     try:
@@ -104,19 +104,18 @@ def track_connections_per_second(ip):
     """Track requests per second for each IP."""
     current_time = time.time()
 
-
+    # Filter old timestamps 
     ip_request_time[ip] = [timestamp for timestamp in ip_request_time[ip] if current_time - timestamp <= TIME_WINDOW]
-    ip_request_time_2min[ip] = [timestamp for timestamp in ip_request_time_2min[ip] if current_time - timestamp <= 120] 
+    ip_request_time_2min[ip] = [timestamp for timestamp in ip_request_time_2min[ip] if current_time - timestamp <= 120]  
 
- 
+    
     ip_request_time[ip].append(current_time)
     ip_request_time_2min[ip].append(current_time)
-
 
     requests_in_last_10_sec = len([timestamp for timestamp in ip_request_time[ip] if current_time - timestamp <= TIME_WINDOW_LONG])
 
     if requests_in_last_10_sec > REQUESTS_THRESHOLD:
-        print(f"IP {ip} überschritt {REQUESTS_THRESHOLD} Anfragen pro Sekunde für mehr als {TIME_WINDOW_LONG} Sekunden, blockiere.")
+        print(f"IP {ip} exceeded {REQUESTS_THRESHOLD} requests per second for more than {TIME_WINDOW_LONG} seconds, blocking.")
         block_ip(ip)
 
 def monitor_synthetic_traffic(ip, syn_count, udp_count):
@@ -287,27 +286,42 @@ def monitor_connections(stdscr):
             stdscr.addstr(row, 0, "Top 5 IPs with Most Requests in the Last 2 Minutes:")
             row += 1
      
-        ip_requests_last_2min = {ip: len(requests) for ip, requests in ip_request_time_2min.items()}
-        top_5_requests_2min_ips = sorted(ip_requests_last_2min.items(), key=lambda item: item[1], reverse=True)[:5]
+        # Ensure ip_request_time_2min has data
+        if not ip_request_time_2min:
+            stdscr.addstr(row, 0, "No IPs with requests in the last 2 minutes.")
+            row += 1
+        else:
+            ip_requests_last_2min = {ip: len(requests) for ip, requests in ip_request_time_2min.items()}
+            top_5_requests_2min_ips = sorted(ip_requests_last_2min.items(), key=lambda item: item[1], reverse=True)[:5]
 
-        for ip, count in top_5_requests_2min_ips:
-            if ip not in blocked_ips: 
-                if count > MIN2_REQUEST:
-                    text = f"Blocking IP {ip} for {count} requests in the last 2 minutes."
-                    stdscr.addstr(row, 0, text[:max_width])
-                    block_ip(ip)
-                    row += 1
-                else:
-                    if row < max_height:
-                        text = f"IP: {ip}, Requests: {count}"
-                        stdscr.addstr(row, 0, text[:max_width])
-                        row += 1
-
-        if len(top_5_requests_2min_ips) == 0:
-            stdscr.addstr(row, 0, "No requests in the last 2 minutes.")
+            stdscr.addstr(row, 0, "Top 5 IPs with the most requests in the last 2 minutes:")
             row += 1
 
-        ip_connections_last_30s.clear()
+            for ip, count in top_5_requests_2min_ips:
+                text = f"IP: {ip}, Requests: {count}"
+                stdscr.addstr(row, 0, text[:max_width])
+                row += 1
+
+                if ip not in blocked_ips and count > MIN2_REQUEST:
+                    recent_requests = len(ip_request_time[ip])  
+                    if recent_requests < (MIN2_REQUEST * 0.1):  
+                        continue  
+
+                    block_message = f"Blocking IP {ip} for {count} requests in the last 2 minutes."
+                    stdscr.addstr(row, 0, block_message[:max_width])
+                    row += 1
+
+                    if count > MIN2_REQUEST * 3:
+                        escalation = f"⚠️ HARD BLOCK: {ip} has over {count} requests!"
+                    elif count > MIN2_REQUEST * 2:
+                        escalation = f"⚠️ WARNING: {ip} is approaching critical threshold!"
+                    else:
+                        escalation = f"🚨 ALERT: {ip} exceeded the threshold!"
+
+                    stdscr.addstr(row, 0, escalation[:max_width])
+                    row += 1
+
+                    block_ip(ip)
 
         stdscr.refresh()
 
