@@ -20,28 +20,13 @@ print(
     f"{periodic_coin_supply} {periodical_blockdag} {periodical_blue_score}")
 
 BLOCKS_TASK = None 
-
-
-MAX_PAYLOAD_SIZE = 2048 * 2048 
-
-
-MAX_CONNECTIONS_PER_IP = 5
-
-
-MAX_CONNECTIONS_IN_TIME_WINDOW = 60
-
-
-TIME_WINDOW_SECONDS = 30
-
-
-BLOCK_TIME_SECONDS = 3600
-
-
-MAX_TOTAL_PAYLOAD = 200 * 1024 * 1024  
-
-
-PAYLOAD_TIME_WINDOW = 60  
-
+MAX_PAYLOAD_SIZE = 2048 * 2048  # Maximum payload size in bytes
+MAX_CONNECTIONS_PER_IP = 5  # Maximum number of connections allowed per IP
+MAX_CONNECTIONS_IN_TIME_WINDOW = 60  # Maximum number of connections in the time window
+TIME_WINDOW_SECONDS = 30  # Time window duration in seconds
+BLOCK_TIME_SECONDS = 3600  # Duration to block the IP in seconds
+MAX_TOTAL_PAYLOAD = 200 * 1024 * 1024  # Maximum total payload size in bytes
+PAYLOAD_TIME_WINDOW = 60  # Time window for payload (if applicable)
 
 connection_history = defaultdict(list)
 
