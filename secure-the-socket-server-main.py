@@ -162,7 +162,7 @@ async def docs_redirect():
     return RedirectResponse(url='/docs')
     
     
-# Tracking für die blockierten IPs
+
 blocked_count = defaultdict(int)
 
 @app.on_event("startup")
